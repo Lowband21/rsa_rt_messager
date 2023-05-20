@@ -3,6 +3,7 @@ use num_traits::{One, ToPrimitive, Zero};
 use std::time::Instant;
 //extern crate rayon;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+//use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,8 +18,8 @@ fn store_keys_in_files(pub_key: &PublicKey, priv_key: &PrivateKey) {
 }
 
 pub struct PublicKey {
-    e: BigUint,
-    n: BigUint,
+    pub e: BigUint,
+    pub n: BigUint,
 }
 
 fn create_public_key(p: &BigUint, q: &BigUint) -> PublicKey {
@@ -27,9 +28,23 @@ fn create_public_key(p: &BigUint, q: &BigUint) -> PublicKey {
     PublicKey { e, n }
 }
 
+#[derive(Clone)]
 pub struct PrivateKey {
     d: BigUint,
     n: BigUint,
+}
+
+impl PrivateKey {
+    pub fn new(d: BigUint, n: BigUint) -> PrivateKey {
+        PrivateKey { d, n }
+    }
+    pub fn d(&self) -> &BigUint {
+        &self.d
+    }
+
+    pub fn n(&self) -> &BigUint {
+        &self.n
+    }
 }
 
 fn create_private_key(p: &BigUint, q: &BigUint, pub_key: &PublicKey) -> PrivateKey {
@@ -57,6 +72,7 @@ fn extended_gcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
 
 fn mod_inverse(a: &BigInt, modulo: &BigInt) -> BigInt {
     let (gcd, x, _) = extended_gcd(a, modulo);
+    // Failure point
     assert!(gcd == BigInt::one()); // Ensure that 'a' and 'modulo' are coprime.
     ((x % modulo) + modulo) % modulo // Ensure that the result is positive.
 }
@@ -107,13 +123,16 @@ fn jacobi_symbol(mut a: BigUint, mut n: BigUint) -> i32 {
 }
 
 // This function does modular exponentiation
-fn mod_exp(base: BigUint, exponent: BigUint, modulus: BigUint) -> BigUint {
-    let mut result: BigUint = BigUint::from(1u64);
-    let mut base = base % &modulus;
-    let mut exponent = exponent;
+pub fn mod_exp(mut base: BigUint, mut exponent: BigUint, modulus: BigUint) -> BigUint {
+    let mut result: BigUint = if exponent.is_zero() {
+        Zero::zero()
+    } else {
+        One::one()
+    };
+    base = base % modulus.clone();
 
     // Keep squaring the base and reducing the exponent until the exponent becomes zero
-    while exponent > 0u8.into() {
+    while !exponent.is_zero() {
         if &exponent % 2u8 == 1u8.into() {
             result = (result * &base) % &modulus;
         }
@@ -173,7 +192,7 @@ pub fn gen_keys() -> (PublicKey, PrivateKey) {
         let now = Instant::now();
         let p = find_prime(num_tries, num_bits, num_iterations, None);
         let elapsed = now.elapsed().as_millis();
-        println!("Found first prime in {}ms", elapsed);
+        //println!("Found first prime in {}ms", elapsed);
         p
     });
 
@@ -181,7 +200,7 @@ pub fn gen_keys() -> (PublicKey, PrivateKey) {
         let now = Instant::now(); // Reset the timer
         let mut q = find_prime(num_tries, num_bits, num_iterations, None);
         let elapsed = now.elapsed().as_millis();
-        println!("Found second prime in {}ms", elapsed);
+        //println!("Found second prime in {}ms", elapsed);
         let p = p_thread.join().unwrap();
         if p == q {
             println!("Wow, found a duplicate");
