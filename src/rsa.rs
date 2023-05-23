@@ -11,8 +11,8 @@ pub fn rsa_encrypt(pub_key: &PublicKey, plaintext: &str) -> Vec<BigUint> {
     let plaintext_as_int = BigUint::from_bytes_be(plaintext_bytes);
     vec![mod_exp(
         plaintext_as_int,
-        pub_key.e.clone(),
-        pub_key.n.clone(),
+        pub_key.e().clone(),
+        pub_key.n().clone(),
     )]
 }
 
@@ -41,7 +41,7 @@ pub fn read_public_key_from_file(filename: &str) -> io::Result<PublicKey> {
     let lines: Vec<&str> = contents.lines().collect();
     let e = lines[0].parse::<BigUint>().unwrap();
     let n = lines[1].parse::<BigUint>().unwrap();
-    Ok(PublicKey { e, n })
+    Ok(PublicKey::new(e, n))
 }
 
 pub fn read_private_key_from_file(filename: &str) -> io::Result<PrivateKey> {

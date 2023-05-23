@@ -73,97 +73,124 @@ pub async fn messager_start() -> Result<(), Box<dyn Error>> {
     let priv_key = read_private_key_from_file("private_key.txt").unwrap();
     // Start the server listening on the given address
 
-    let server = start_server(&address, &priv_key);
+    //let server = start_server(&address, &priv_key);
 
     // Add a delay before starting the client
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    //tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Then start the client
-    let client = start_client(&address, &username, &public_key);
+    let client = start_client(&address, public_key, &username, priv_key);
 
     // Run both the server and client concurrently
-    tokio::try_join!(server, client)?;
+    tokio::try_join!(client)?;
 
     Ok(())
 }
 
 use std::error::Error;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 async fn start_client(
-    peer_addr: &str,
+    server_addr: &str,
+    pub_key: PublicKey,
     username: &str,
-    public_key: &PublicKey,
+    priv_key: PrivateKey,
 ) -> Result<(), Box<dyn Error>> {
-    // Set up a TCP stream
-    let mut stream = match TcpStream::connect(peer_addr).await {
-        Ok(stream) => stream,
-        Err(e) => {
-            eprintln!("Failed to connect: {:?}", e);
-            return Err(e.into());
-        }
-    };
+    println!("Starting client...");
 
-    // Ask for input and then encrypt it using the public key
-    let mut input = String::new();
-    println!("Write your message: ");
-    std::io::stdin().read_line(&mut input)?;
-    let message = format!("{}: {}", username, input.trim());
+    let mut stream = TcpStream::connect(server_addr).await?;
+    println!("Connected to server...");
 
-    let encrypted_message = rsa_encrypt(public_key, &message);
+    let pub_key = Arc::new(pub_key);
+    let priv_key = Arc::new(priv_key);
 
-    // Convert the encrypted message into bytes and send it over the network
-    for block in &encrypted_message {
-        let block_bytes = block.to_bytes_be();
-        stream.write_all(&block_bytes).await?;
-    }
+    // Read the server's public key
+    let mut buf = [0; 1024];
+    stream.read(&mut buf).await?;
+    println!("Read data from server");
 
-    Ok(())
-}
+    println!("Buffer: {:?}", buf);
+    let server_pub_key = PublicKey::from_bytes(&buf)?;
 
-async fn start_server(local_addr: &str, priv_key: &PrivateKey) -> Result<(), Box<dyn Error>> {
-    // Listen for incoming connections
-    let listener = TcpListener::bind(local_addr).await?;
+    // Send the client's public key
+    stream.write_all(&pub_key.to_bytes().unwrap()).await?;
+
+    println!("Exchanged public keys with the server");
 
     loop {
-        let (mut socket, _) = listener.accept().await?;
-        let priv_key = priv_key.clone();
+        let server_pub_key = Arc::new(&server_pub_key);
+        let priv_key = Arc::clone(&priv_key);
+        println!("In loop");
 
-        tokio::spawn(async move {
-            let mut buf = [0; 1024];
-            // In a loop, read data from the socket and write the data back.
-            loop {
-                let n = match socket.read(&mut buf).await {
-                    // socket closed
-                    Ok(n) if n == 0 => return,
-                    Ok(n) => n,
-                    Err(e) => {
-                        eprintln!("failed to read from socket; err = {:?}", e);
-                        return;
-                    }
-                };
+        // Read the nonce from the server
+        let mut buf = [0; 1024];
+        let n = match stream.read(&mut buf).await {
+            Ok(n) => {
+                println!("Received nonce from server...");
+                n
+            }
+            Err(e) => {
+                println!("Failed to read nonce from server: {}", e);
+                return Err(e.into());
+            }
+        };
+        let nonce = u64::from_be_bytes(buf[..n].try_into().unwrap());
 
-                // Convert the received bytes to a BigUint
-                let message_as_big_uint = BigUint::from_bytes_be(&buf[..n]);
-
-                // Decrypt the message
-                let decrypted_message = rsa_decrypt(&priv_key, &vec![message_as_big_uint]);
-
-                // Handle the case where the decrypted message isn't valid UTF-8
-                let message = match decrypted_message {
-                    Ok(msg) => msg,
-                    Err(_) => "Received message isn't valid UTF-8".to_string(),
-                };
-
-                println!("Received: {}", message);
-
-                // Echo the data back
-                if let Err(e) = socket.write_all(message.as_bytes()).await {
-                    eprintln!("failed to write to socket; err = {:?}", e);
-                    return;
+        // Encrypt the nonce and send it back to the server
+        let encrypted_nonce = rsa_encrypt(&*pub_key, &nonce.to_string());
+        for block in &encrypted_nonce {
+            match stream.write_all(&block.to_bytes_be()).await {
+                Ok(_) => println!("Sent encrypted nonce..."),
+                Err(e) => {
+                    println!("Failed to send encrypted nonce: {}", e);
+                    return Err(e.into());
                 }
             }
-        });
+        }
+
+        /*
+        // Encrypt and send the username
+        let encrypted_username = rsa_encrypt(&pub_key, username);
+        for block in &encrypted_username {
+            match stream.write_all(&block.to_bytes_be()).await {
+                Ok(_) => println!("Sent encrypted username..."),
+                Err(e) => {
+                    println!("Failed to send encrypted username: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+
+        // Read, encrypt and send the plaintext message
+        let plaintext_message = read_plaintext_message()?;
+        let encrypted_message = rsa_encrypt(&pub_key, &plaintext_message);
+        for block in &encrypted_message {
+            match stream.write_all(&block.to_bytes_be()).await {
+                Ok(_) => println!("Sent encrypted message..."),
+                Err(e) => {
+                    println!("Failed to send encrypted message: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        */
+
+        // Read and print the server's response
+        let mut buf = [0; 1024];
+        let n = match stream.read(&mut buf).await {
+            Ok(n) => {
+                println!("Read {} bytes from server...", n);
+                n
+            }
+            Err(e) => {
+                println!("Failed to read from server: {}", e);
+                return Err(e.into());
+            }
+        };
+
+        let response_message = std::str::from_utf8(&buf[..n])?;
+        println!("Response: {}", response_message);
     }
 }

@@ -4,6 +4,7 @@ use std::time::Instant;
 //extern crate rayon;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 //use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::*;
 use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,48 +18,91 @@ fn store_keys_in_files(pub_key: &PublicKey, priv_key: &PrivateKey) {
     write!(file, "{}\n{}", priv_key.d, priv_key.n).unwrap();
 }
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PublicKey {
-    pub e: BigUint,
-    pub n: BigUint,
+    pub e: String,
+    pub n: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PrivateKey {
+    d: String,
+    n: String,
+}
+
+impl PublicKey {
+    pub fn new(e: BigUint, n: BigUint) -> PublicKey {
+        PublicKey {
+            e: e.to_str_radix(10),
+            n: n.to_str_radix(10),
+        }
+    }
+
+    pub fn e(&self) -> BigUint {
+        BigUint::parse_bytes(self.e.as_bytes(), 10).unwrap()
+    }
+
+    pub fn n(&self) -> BigUint {
+        BigUint::parse_bytes(self.n.as_bytes(), 10).unwrap()
+    }
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(Error::from)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<PublicKey> {
+        // Filter out zero bytes
+        let trimmed: Vec<u8> = bytes.iter().cloned().filter(|&x| x != 0).collect();
+
+        // Parse JSON from trimmed bytes
+        serde_json::from_slice(&trimmed).map_err(Error::from)
+    }
+}
+
+impl PrivateKey {
+    pub fn new(d: BigUint, n: BigUint) -> PrivateKey {
+        PrivateKey {
+            d: d.to_str_radix(10),
+            n: n.to_str_radix(10),
+        }
+    }
+
+    pub fn d(&self) -> BigUint {
+        BigUint::parse_bytes(self.d.as_bytes(), 10).unwrap()
+    }
+
+    pub fn n(&self) -> BigUint {
+        BigUint::parse_bytes(self.n.as_bytes(), 10).unwrap()
+    }
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(Error::from)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<PrivateKey> {
+        // Filter out zero bytes
+        let trimmed: Vec<u8> = bytes.iter().cloned().filter(|&x| x != 0).collect();
+
+        // Parse JSON from trimmed bytes
+        serde_json::from_slice(&trimmed).map_err(Error::from)
+    }
 }
 
 fn create_public_key(p: &BigUint, q: &BigUint) -> PublicKey {
     let e = 65537u64.to_biguint().unwrap();
     let n = p * q;
-    PublicKey { e, n }
-}
-
-#[derive(Clone)]
-pub struct PrivateKey {
-    d: BigUint,
-    n: BigUint,
-}
-
-impl PrivateKey {
-    pub fn new(d: BigUint, n: BigUint) -> PrivateKey {
-        PrivateKey { d, n }
-    }
-    pub fn d(&self) -> &BigUint {
-        &self.d
-    }
-
-    pub fn n(&self) -> &BigUint {
-        &self.n
-    }
+    PublicKey::new(e, n)
 }
 
 fn create_private_key(p: &BigUint, q: &BigUint, pub_key: &PublicKey) -> PrivateKey {
     let one: BigUint = One::one();
     let phi = (p.clone() - &one) * (q.clone() - &one);
     let d = mod_inverse(
-        &BigInt::from_biguint(Plus, pub_key.e.clone()),
+        &BigInt::from_biguint(Plus, pub_key.e().clone()),
         &BigInt::from_biguint(Plus, phi.clone()),
     );
     let n = p * q;
-    PrivateKey {
-        d: d.to_biguint().unwrap(),
-        n,
-    }
+    PrivateKey::new(d.to_biguint().unwrap(), n)
 }
 
 fn extended_gcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
