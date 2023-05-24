@@ -82,9 +82,9 @@ fn solovay_strassen(n: &BigUint, iterations: u32) -> bool {
 
 fn main() {
     let now = Instant::now();
-    let num_tries = 1000; // number of random numbers to generate and check
-    let num_bits = 2048;
-    let num_iterations = 10;
+    let num_tries = 10000; // number of random numbers to generate and check
+    let num_bits = 1024;
+    let num_iterations = 55;
 
     let results: Vec<_> = (0..num_tries)
         .into_par_iter()
