@@ -35,23 +35,8 @@ pub async fn messager_start() -> Result<(), Box<dyn Error>> {
                 }
             })
             .build(),
-        Question::input("public_key_file")
-            .message("What is the file name of your public key?")
-            .default("public_key.txt")
-            .validate(|input, _| {
-                if input.is_empty() {
-                    Err(String::from("This field cannot be empty"))
-                } else {
-                    Ok(())
-                }
-            })
-            .build(),
     ];
     let answers = prompt(questions).unwrap();
-
-    let public_key: PublicKey =
-        read_public_key_from_file(answers.get("public_key_file").unwrap().as_string().unwrap())
-            .unwrap();
 
     let username: String = answers
         .get("username")
@@ -70,7 +55,6 @@ pub async fn messager_start() -> Result<(), Box<dyn Error>> {
         .to_string()
         .clone();
 
-    let priv_key = read_private_key_from_file("private_key.txt").unwrap();
     // Start the server listening on the given address
 
     //let server = start_server(&address, &priv_key);
@@ -79,7 +63,7 @@ pub async fn messager_start() -> Result<(), Box<dyn Error>> {
     //tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Then start the client
-    let client = start_client(&address, public_key, &username, priv_key);
+    let client = connect_to_server();
 
     // Run both the server and client concurrently
     tokio::try_join!(client)?;
@@ -87,110 +71,61 @@ pub async fn messager_start() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+use crate::types::{EncryptAbleMessage, RsaKey};
 use std::error::Error;
-use std::sync::Arc;
+use std::path::Path;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream; // Assuming you have types.rs in the same crate
 
-async fn start_client(
-    server_addr: &str,
-    pub_key: PublicKey,
-    username: &str,
-    priv_key: PrivateKey,
-) -> Result<(), Box<dyn Error>> {
-    println!("Starting client...");
+async fn connect_to_server() -> Result<(), Box<dyn Error>> {
+    // Change the IP address and port to match your server's
+    let mut stream = TcpStream::connect("127.0.0.1:9000").await?;
 
-    let mut stream = TcpStream::connect(server_addr).await?;
-    println!("Connected to server...");
+    // Read RSA keys from files
+    let rsa_key = RsaKey::from_files(Path::new("public_key.txt"), Path::new("private_key.txt"))?;
 
-    let pub_key = Arc::new(pub_key);
-    let priv_key = Arc::new(priv_key);
+    let message = EncryptAbleMessage::new(rsa_key.public.clone(), "Hello, Server!".to_owned());
 
-    // Read the server's public key
-    let mut buf = [0; 1024];
-    stream.read(&mut buf).await?;
-    println!("Read data from server");
+    // Send public key to the server
+    let key_string = rsa_key.public.clone().to_string();
+    stream.write_all(key_string.as_bytes()).await?;
 
-    println!("Buffer: {:?}", buf);
-    let server_pub_key = PublicKey::from_bytes(&buf)?;
+    // Read server response (server's challenge)
+    let mut buf = vec![0; 1024];
+    let n = stream.read(&mut buf).await?;
+    let encrypted_secret = BigUint::from_bytes_le(&buf[..n]);
 
-    // Send the client's public key
-    stream.write_all(&pub_key.to_bytes().unwrap()).await?;
+    // Decrypt the secret with private key and send it back to the server
+    let decrypted_secret = rsa_decrypt_biguint(&rsa_key.private, encrypted_secret);
+    stream
+        .write_all(decrypted_secret.to_string().as_bytes())
+        .await?;
 
-    println!("Exchanged public keys with the server");
+    // Read server response (verification result)
+    let n = stream.read(&mut buf).await?;
+    let server_response = String::from_utf8_lossy(&buf[..n]);
+    println!("Server response: {}", server_response);
 
-    loop {
-        let server_pub_key = Arc::new(&server_pub_key);
-        let priv_key = Arc::clone(&priv_key);
-        println!("In loop");
-
-        // Read the nonce from the server
-        let mut buf = [0; 1024];
-        let n = match stream.read(&mut buf).await {
-            Ok(n) => {
-                println!("Received nonce from server...");
-                n
-            }
-            Err(e) => {
-                println!("Failed to read nonce from server: {}", e);
-                return Err(e.into());
-            }
-        };
-        let nonce = u64::from_be_bytes(buf[..n].try_into().unwrap());
-
-        // Encrypt the nonce and send it back to the server
-        let encrypted_nonce = rsa_encrypt(&*pub_key, &nonce.to_string());
-        for block in &encrypted_nonce {
-            match stream.write_all(&block.to_bytes_be()).await {
-                Ok(_) => println!("Sent encrypted nonce..."),
-                Err(e) => {
-                    println!("Failed to send encrypted nonce: {}", e);
-                    return Err(e.into());
-                }
-            }
-        }
-
-        /*
-        // Encrypt and send the username
-        let encrypted_username = rsa_encrypt(&pub_key, username);
-        for block in &encrypted_username {
-            match stream.write_all(&block.to_bytes_be()).await {
-                Ok(_) => println!("Sent encrypted username..."),
-                Err(e) => {
-                    println!("Failed to send encrypted username: {}", e);
-                    return Err(e.into());
-                }
-            }
-        }
-
-        // Read, encrypt and send the plaintext message
-        let plaintext_message = read_plaintext_message()?;
-        let encrypted_message = rsa_encrypt(&pub_key, &plaintext_message);
-        for block in &encrypted_message {
-            match stream.write_all(&block.to_bytes_be()).await {
-                Ok(_) => println!("Sent encrypted message..."),
-                Err(e) => {
-                    println!("Failed to send encrypted message: {}", e);
-                    return Err(e.into());
-                }
-            }
-        }
-        */
-
-        // Read and print the server's response
-        let mut buf = [0; 1024];
-        let n = match stream.read(&mut buf).await {
-            Ok(n) => {
-                println!("Read {} bytes from server...", n);
-                n
-            }
-            Err(e) => {
-                println!("Failed to read from server: {}", e);
-                return Err(e.into());
-            }
-        };
-
-        let response_message = std::str::from_utf8(&buf[..n])?;
-        println!("Response: {}", response_message);
+    // Check if verification failed
+    if server_response != "VERIFIED" {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Verification failed",
+        )));
     }
+
+    // Encrypt the message and send to server
+    let encrypted_message = message.encrypt(rsa_key.public);
+    for encrypted_part in encrypted_message {
+        let encrypted_string = encrypted_part.to_string();
+        stream.write_all(encrypted_string.as_bytes()).await?;
+    }
+
+    Ok(())
+}
+
+use crate::types::PrivateRSAKey;
+
+fn rsa_decrypt_biguint(private_key: &PrivateRSAKey, cipher_text: BigUint) -> BigUint {
+    cipher_text.modpow(&private_key.private_d, &private_key.private_phi_n)
 }

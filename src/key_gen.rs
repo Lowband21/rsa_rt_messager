@@ -12,10 +12,10 @@ use std::sync::{mpsc::channel, Arc};
 
 fn store_keys_in_files(pub_key: &PublicKey, priv_key: &PrivateKey) {
     let mut file = File::create("public_key.txt").unwrap();
-    write!(file, "{}\n{}", pub_key.e, pub_key.n).unwrap();
+    write!(file, "{},{}", pub_key.n, pub_key.e).unwrap();
 
     let mut file = File::create("private_key.txt").unwrap();
-    write!(file, "{}\n{}", priv_key.d, priv_key.n).unwrap();
+    write!(file, "{},{}", priv_key.n, priv_key.d).unwrap();
 }
 
 use serde::{Deserialize, Serialize};
