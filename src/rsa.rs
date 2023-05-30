@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 
-pub fn rsa_encrypt(pub_key: &PublicKey, plaintext: &str) -> Vec<BigUint> {
+pub fn rsa_encrypt_text(pub_key: &PublicKey, plaintext: &str) -> Vec<BigUint> {
     let plaintext_bytes = plaintext.as_bytes();
     let plaintext_as_int = BigUint::from_bytes_be(plaintext_bytes);
     vec![mod_exp(
@@ -14,6 +14,14 @@ pub fn rsa_encrypt(pub_key: &PublicKey, plaintext: &str) -> Vec<BigUint> {
         pub_key.e().clone(),
         pub_key.n().clone(),
     )]
+}
+
+pub fn rsa_encrypt_bytes(pub_key: &PublicKey, plaintext: [u8; 16]) -> Vec<u8> {
+    let plaintext_as_int = BigUint::from_bytes_be(&plaintext);
+    let encrypted = mod_exp(plaintext_as_int, pub_key.e().clone(), pub_key.n().clone());
+
+    // Convert the encrypted BigUint back into bytes
+    encrypted.to_bytes_be()
 }
 
 pub fn rsa_decrypt(

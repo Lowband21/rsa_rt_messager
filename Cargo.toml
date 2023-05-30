@@ -21,3 +21,8 @@ tokio = { version =  "1.28.1", features = ["full"]}
 tokio-tungstenite = "0.19.0"
 websocket = { version = "0.26.5", features = ["async"]}
 num = {version="0.4.0", features = ["rand"]}
+bytes = "1.4.0"
+tokio-util = "0.7.8"
+rust-crypto = "^0.2"
+aes = "0.7"
+block-modes = "0.8"

@@ -3,6 +3,8 @@ use key_gen::gen_keys;
 
 mod messager;
 use messager::messager_start;
+//mod client;
+//use client::start;
 
 mod rsa;
 mod types;
@@ -16,4 +18,5 @@ fn main() {
     //let millis = now.elapsed().as_millis();
     //println!("Average elapsed time: {}", millis / 1000);
     messager_start().unwrap();
+    //start();
 }

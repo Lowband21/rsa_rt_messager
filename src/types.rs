@@ -1,5 +1,6 @@
 // src/types.rs
 
+use crate::rsa::{read_private_key_from_file, rsa_decrypt};
 use num::bigint::{BigInt, BigUint, RandBigInt, ToBigInt};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error, Read};
@@ -7,7 +8,7 @@ use std::path::Path;
 
 use std::str::FromStr;
 
-struct Message {
+pub struct Message {
     reciever: PublicRSAKey,
     encrypted_part: Vec<BigUint>,
 }
@@ -45,6 +46,11 @@ impl EncryptAbleMessage {
         }
 
         return encrypted_chunks;
+    }
+
+    pub fn decrypt(ciphertext: &Vec<BigUint>) -> Result<String, std::string::FromUtf8Error> {
+        let private_key = read_private_key_from_file("private_key.txt");
+        rsa_decrypt(&private_key.unwrap(), ciphertext)
     }
 }
 

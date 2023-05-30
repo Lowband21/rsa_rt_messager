@@ -20,13 +20,13 @@ fn store_keys_in_files(pub_key: &PublicKey, priv_key: &PrivateKey) {
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicKey {
     pub e: String,
     pub n: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrivateKey {
     d: String,
     n: String,
