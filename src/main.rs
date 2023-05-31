@@ -1,9 +1,7 @@
-use num_bigint::{BigUint, RandBigInt, ToBigUint};
-use num_traits::{One, ToPrimitive, Zero};
-use rand::Rng;
-use std::time::Instant;
-//extern crate rayon;
+use num_bigint::{BigUint, RandBigInt};
+use num_traits::{One, ToPrimitive};
 use rayon::prelude::*;
+use std::time::Instant;
 
 fn generate_odd_random_number(bits: u32) -> BigUint {
     let mut rng = rand::thread_rng();
@@ -80,37 +78,112 @@ fn solovay_strassen(n: &BigUint, iterations: u32) -> bool {
     true
 }
 
-fn main() {
-    let now = Instant::now();
-    let num_tries = 10000; // number of random numbers to generate and check
-    let num_bits = 1024;
-    let num_iterations = 55;
+use num_cpus;
+use requestty::*;
 
-    let results: Vec<_> = (0..num_tries)
+enum Thread {
+    Multi,
+    Single,
+}
+
+fn main() {
+    let core_question = Question::select("core")
+        .message("Multi-core or single-core?")
+        .default(1)
+        .choice("Single-thread")
+        .choice("Multi-thread");
+    let core_answer = &requestty::prompt_one(core_question).unwrap();
+    let core = match core_answer.as_list_item().unwrap().text.as_str() {
+        "Single-thread" => Thread::Single,
+        "Multi-thread" => Thread::Multi,
+        &_ => panic!("Impossible"),
+    };
+
+    match core {
+        Thread::Single => {
+            let scale_question = Question::float("scale")
+                .message("Enter a scale factor: ")
+                .default(0.2)
+                .build();
+            let answer = &requestty::prompt_one(scale_question).unwrap();
+            let scale = answer.as_float().unwrap().clone();
+            single_core_bench(scale);
+        }
+        Thread::Multi => {
+            let scale_question = Question::float("scale")
+                .message("Enter a scale factor: ")
+                .default(3.0)
+                .build();
+            let answer = &requestty::prompt_one(scale_question).unwrap();
+            let scale = answer.as_float().unwrap().clone();
+            multi_core_bench(scale);
+        }
+    }
+}
+fn single_core_bench(scale: f64) {
+    let num_cores = num_cpus::get();
+    // Adjust these parameters for the workload.
+    let num_tries_per_core = (1024.0 * scale) as usize;
+    let num_bits = 2048;
+    let num_iterations = 128;
+
+    let total_tries = num_tries_per_core * num_cores;
+
+    let now = Instant::now();
+
+    let num_primes: usize = (0..total_tries)
+        .into_iter()
+        .map(|_| {
+            let odd_num = generate_odd_random_number(num_bits);
+            if solovay_strassen(&odd_num, num_iterations) {
+                1
+            } else {
+                0
+            }
+        })
+        .sum();
+
+    let elapsed = now.elapsed().as_secs_f64();
+
+    println!(
+        "Found {} {} bit prime numbers in {} attempts and {}s",
+        num_primes, num_bits, total_tries, elapsed
+    );
+
+    let score = total_tries as f64 / elapsed;
+    println!("Score: {:>2} tries/s", score);
+}
+
+fn multi_core_bench(scale: f64) {
+    let num_cores = num_cpus::get();
+    // Adjust these parameters for the workload.
+    let num_tries_per_core = (1024.0 * scale) as usize;
+    let num_bits = 2048;
+    let num_iterations = 128;
+
+    let total_tries = num_tries_per_core * num_cores;
+
+    let now = Instant::now();
+
+    let num_primes: usize = (0..total_tries)
         .into_par_iter()
         .map(|_| {
             let odd_num = generate_odd_random_number(num_bits);
-            let is_prime = solovay_strassen(&odd_num, num_iterations);
-            if is_prime {
-                println!("Found a large prime");
+            if solovay_strassen(&odd_num, num_iterations) {
+                1
+            } else {
+                0
             }
-
-            (odd_num, is_prime)
         })
-        .collect();
+        .sum();
 
-    let prime_results: Vec<_> = results
-        .into_iter()
-        .filter(|(_, is_prime)| *is_prime)
-        .collect();
+    let elapsed = now.elapsed().as_secs_f64();
 
-    for i in prime_results.clone() {
-        println!("Prime Number: {:?}", i);
-    }
     println!(
-        "Found {} prime numbers in {} attempts and {}ms",
-        prime_results.len(),
-        num_tries,
-        now.elapsed().as_millis()
+        "Found {} {} bit prime numbers in {} attempts and {:.4}s",
+        num_primes, num_bits, total_tries, elapsed
     );
+
+    let score = total_tries as f64 / elapsed;
+    println!("Score: {:.2} tries/s", score);
 }
